@@ -112,6 +112,8 @@ class Align : public QWidget, public Ui::Align
             PAH_SECOND_CAPTURE,
             PAH_SECOND_ROTATE,
             PAH_THIRD_CAPTURE,
+            PAH_THIRD_ROTATE,
+            PAH_FORTH_CAPTURE,
             PAH_STAR_SELECT,
             PAH_PRE_REFRESH,
             PAH_REFRESH,
@@ -686,8 +688,10 @@ class Align : public QWidget, public Ui::Align
 
         double distance(const QPointF &p1, const QPointF &p2);
         bool findRACircle(QVector3D &RACircle);
+        bool findRACircle_wildi(QVector3D &RACircle);
         bool isPerpendicular(const QPointF &p1, const QPointF &p2, const QPointF &p3);
         bool calcCircle(const QPointF &p1, const QPointF &p2, const QPointF &p3, QVector3D &RACircle);
+        bool calcCircle_wildi(const QPointF &p1, const QPointF &p2, const QPointF &p3, const QPointF &p4, QVector3D &RACircle);
 
         void resizeEvent(QResizeEvent *event) override;
 
@@ -878,7 +882,7 @@ class Align : public QWidget, public Ui::Align
         QVector<PAHImageInfo *> pahImageInfos;
 
         // User desired offset when selecting a bright star in the image
-        QPointF celestialPolePoint, correctionOffset, RACenterPoint;
+        QPointF celestialPolePoint, correctionOffset, RACenterPoint, RACenterPoint_wildi;
         // Correction vector line between mount RA Axis and celestial pole
         QLineF correctionVector;
 

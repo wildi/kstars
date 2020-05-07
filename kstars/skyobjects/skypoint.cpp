@@ -946,10 +946,13 @@ bool SkyPoint::checkCircumpolar(const dms *gLat) const
 
 dms SkyPoint::altRefracted() const
 {
+  return Alt;
+#ifdef no  
     if (Options::useRefraction())
         return refract(Alt);
     else
         return Alt;
+#endif
 }
 
 double SkyPoint::refractionCorr(double alt)
@@ -959,6 +962,9 @@ double SkyPoint::refractionCorr(double alt)
 
 double SkyPoint::refract(const double alt)
 {
+  
+  return alt;
+#ifdef no  
     static double corrCrit = SkyPoint::refractionCorr(SkyPoint::altCrit);
 
     if (alt > SkyPoint::altCrit)
@@ -967,6 +973,7 @@ double SkyPoint::refract(const double alt)
         return (alt +
                 corrCrit * (alt + 90) /
                 (SkyPoint::altCrit + 90)); // Linear extrapolation from corrCrit at altCrit to 0 at -90 degrees
+#endif
 }
 
 // Found uncorrected value by solving equation. This is OK since

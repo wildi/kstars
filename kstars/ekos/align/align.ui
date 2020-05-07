@@ -1136,16 +1136,16 @@
                     <string>Rotation magnitude in degrees</string>
                    </property>
                    <property name="minimum">
-                    <number>15</number>
+                    <number>1</number>
                    </property>
                    <property name="maximum">
-                    <number>60</number>
+                    <number>61</number>
                    </property>
                    <property name="singleStep">
                     <number>15</number>
                    </property>
                    <property name="value">
-                    <number>30</number>
+                    <number>1</number>
                    </property>
                   </widget>
                  </item>

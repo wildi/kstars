@@ -74,6 +74,8 @@ const QMap<Align::PAHStage, QString> Align::PAHStages =
     {PAH_SECOND_CAPTURE, I18N_NOOP("Second Capture"}),
     {PAH_SECOND_ROTATE, I18N_NOOP("Second Rotation"}),
     {PAH_THIRD_CAPTURE, I18N_NOOP("Third Capture"}),
+    {PAH_THIRD_ROTATE, I18N_NOOP("Third Rotation"}),
+    {PAH_FORTH_CAPTURE, I18N_NOOP("Forth Capture"}),
     {PAH_STAR_SELECT, I18N_NOOP("Select Star"}),
     {PAH_PRE_REFRESH, I18N_NOOP("Select Refresh"}),
     {PAH_REFRESH, I18N_NOOP("Refreshing"}),
@@ -3229,8 +3231,8 @@ void Align::solverFinished(double orientation, double ra, double dec, double pix
     ISD::CCDChip *targetChip = currentCCD->getChip(useGuideHead ? ISD::CCDChip::GUIDE_CCD : ISD::CCDChip::PRIMARY_CCD);
     targetChip->getBinning(&binx, &biny);
 
-    if (Options::alignmentLogging())
-        appendLogText(i18n("Solver RA (%1) DEC (%2) Orientation (%3) Pixel Scale (%4)", QString::number(ra, 'f', 5),
+    //wildi was if (Options::alignmentLogging())
+        appendLogText(i18n("wildi Solver RA (%1) DEC (%2) Orientation (%3) Pixel Scale (%4)", QString::number(ra, 'f', 5),
                            QString::number(dec, 'f', 5), QString::number(orientation, 'f', 5),
                            QString::number(pixscale, 'f', 5)));
 
@@ -3248,8 +3250,17 @@ void Align::solverFinished(double orientation, double ra, double dec, double pix
     alignCoord.setDec0(dec);
     RotOut->setText(QString::number(orientation, 'f', 5));
 
+    appendLogText(i18n("wildi solver J2 RA (%1) DEC (%2)",
+                       alignCoord.ra0().toHMSString(), alignCoord.dec0().toDMSString()));
+    appendLogText(i18n("wildi solver J2 RA (%1) DEC (%2)",
+                       alignCoord.ra0().Degrees(), alignCoord.dec0().Degrees()));
     // Convert to JNow
     alignCoord.apparentCoord(static_cast<long double>(J2000), KStars::Instance()->data()->ut().djd());
+    appendLogText(i18n("wildi  J2, JN, alignCoord RA: %1, %2, Dec:, %3, %4", QString::number(alignCoord.ra0().Degrees(), 'f', 5),  QString::number(alignCoord.ra().Degrees(), 'f', 5), QString::number(alignCoord.dec0().Degrees(), 'f', 5), QString::number(alignCoord.dec().Degrees(), 'f', 5)));
+    appendLogText(i18n("wildi solver JN RA (%1) DEC (%2)",
+                       alignCoord.ra().toHMSString(), alignCoord.dec().toDMSString()));
+    appendLogText(i18n("wildi solver JN RA (%1) DEC (%2)",
+                       alignCoord.ra().Degrees(), alignCoord.dec().Degrees()));
     // Get horizontal coords
     alignCoord.EquatorialToHorizontal(KStarsData::Instance()->lst(), KStarsData::Instance()->geo()->lat());
 
@@ -3967,6 +3978,37 @@ void Align::processNumber(INumberVectorProperty *nvp)
                     pahStage = PAH_THIRD_CAPTURE;
                     emit newPAHStage(pahStage);
 
+                    PAHWidgets->setCurrentWidget(PAHThirdCapturePage);
+                    emit newPAHMessage(thirdCaptureText->text());
+
+                    if (delaySpin->value() >= DELAY_THRESHOLD_NOTIFY)
+                        appendLogText(i18n("Settling..."));
+                    m_CaptureTimer.start(delaySpin->value());
+                }
+                // If for some reason we didn't stop, let's stop if we get too far
+                else if (deltaAngle > PAHRotationSpin->value() * 1.25)
+                {
+                    currentTelescope->Abort();
+                    appendLogText(i18n("Mount aborted. Please restart the process and reduce the speed."));
+                    stopPAHProcess();
+                }
+                return;
+            } // endif not manual slew
+        }
+        else if (pahStage == PAH_THIRD_ROTATE)
+        {
+            // only wait for telescope to slew to new position if manual slewing is switched off
+            if(!PAHManual->isChecked())
+            {
+                double deltaAngle = fabs(telescopeCoord.ra().deltaAngle(targetPAH.ra()).Degrees());
+                qCDebug(KSTARS_EKOS_ALIGN) << "wildi third  mount rotation remaining degrees:" << deltaAngle;
+                if (deltaAngle <= PAH_ROTATION_THRESHOLD)
+                {
+                    currentTelescope->StopWE();
+                    appendLogText(i18n("wildi Mount third rotation is complete."));
+
+                    pahStage = PAH_FORTH_CAPTURE;
+                    emit newPAHStage(pahStage);
 
                     PAHWidgets->setCurrentWidget(PAHThirdCapturePage);
                     emit newPAHMessage(thirdCaptureText->text());
@@ -5359,17 +5401,19 @@ void Align::rotatePAH()
     currentTelescope->MoveWE(westMeridian ? ISD::Telescope::MOTION_WEST : ISD::Telescope::MOTION_EAST,
                              ISD::Telescope::MOTION_START);
 
-    appendLogText(i18n("Please wait until mount completes rotating to RA (%1) DE (%2)", targetPAH.ra().toHMSString(),
+    appendLogText(i18n("wildi Please wait until mount completes rotating to RA (%1) DE (%2)", targetPAH.ra().toHMSString(),
                        targetPAH.dec().toDMSString()));
 }
-
+// wildi
 void Align::calculatePAHError()
 {
     QVector3D RACircle;
+    QVector3D RACircle_wildi;
 
     bool rc = findRACircle(RACircle);
+    bool rc_wildi = findRACircle_wildi(RACircle_wildi);
 
-    if (rc == false)
+    if ((rc == false) || (!rc_wildi))
     {
         appendLogText(i18n("Failed to find a solution. Try again."));
         stopPAHProcess();
@@ -5384,31 +5428,70 @@ void Align::calculatePAHError()
 
     RACenterPoint.setX(RACircle.x());
     RACenterPoint.setY(RACircle.y());
+    
+    RACenterPoint_wildi.setX(RACircle_wildi.x());
+    RACenterPoint_wildi.setY(RACircle_wildi.y());
 
     SkyPoint RACenter;
     rc = imageData->pixelToWCS(RACenterPoint, RACenter);
+    SkyPoint RACenter_wildi;
+    rc_wildi = imageData->pixelToWCS(RACenterPoint_wildi, RACenter_wildi);
 
-    if (rc == false)
+    if ((rc == false) || (!rc_wildi))
     {
         appendLogText(i18n("Failed to find RA Axis center: %1.", imageData->getLastError()));
         return;
     }
 
     SkyPoint CP(0, (hemisphere == NORTH_HEMISPHERE) ? 90 : -90);
-
+    // 2020-04-27, wildi consulting skypoint.h
+    // no J2000 to JNow occurs.
+    // 2020-05-02, wildi see constructor
     RACenter.setRA(RACenter.ra0());
     RACenter.setDec(RACenter.dec0());
-    double PA = 0;
+    RACenter_wildi.setRA(RACenter_wildi.ra0());
+    RACenter_wildi.setDec(RACenter_wildi.dec0());
+    double PA = 1;
+    // 2020-05-02, see dms SkyPoint::angularDistanceTo(const SkyPoint *sp, double *const positionAngle) const   
+    // 2020-05-02, wildi, CP has no defined ra or ha.
+    // the angular distance from S/NCP is pi/2 - RACenter.dec0()
+    // the question remains either J2000, JNow
     dms polarError = RACenter.angularDistanceTo(&CP, &PA);
-
+    dms polarError_wildi = RACenter_wildi.angularDistanceTo(&CP, &PA);
+    // !!polarError will be overridden at the end
+    dms cp = dms(90.);
+    dms polarDistance = cp - RACenter.dec0() ; 
+    
     if (Options::alignmentLogging())
     {
-        qCDebug(KSTARS_EKOS_ALIGN) << "RA Axis Circle X: " << RACircle.x() << " Y: " << RACircle.y()
+        qCDebug(KSTARS_EKOS_ALIGN) << "ekos : RA Axis Circle X: " << RACircle.x() << " Y: " << RACircle.y()
                                    << " Radius: " << RACircle.z();
-        qCDebug(KSTARS_EKOS_ALIGN) << "RA Axis Location RA: " << RACenter.ra0().toHMSString()
+        qCDebug(KSTARS_EKOS_ALIGN) << "ekos : J2 RA Axis Location RA: " << RACenter.ra0().toHMSString()
                                    << "DE: " << RACenter.dec0().toDMSString();
-        qCDebug(KSTARS_EKOS_ALIGN) << "RA Axis Offset: " << polarError.toDMSString() << "PA:" << PA;
-        qCDebug(KSTARS_EKOS_ALIGN) << "CP Axis Location X:" << celestialPolePoint.x() << "Y:" << celestialPolePoint.y();
+        qCDebug(KSTARS_EKOS_ALIGN) << "ekos : JN RA Axis Location RA: " << RACenter.ra().toHMSString()
+                                   << "DE: " << RACenter.dec().toDMSString();
+        qCDebug(KSTARS_EKOS_ALIGN) << "ekos : RA Axis Offset: " << polarError.toDMSString() << "PA:" << PA;
+        qCDebug(KSTARS_EKOS_ALIGN) << "ekos : polar distance: " << polarDistance.toDMSString() ;
+        qCDebug(KSTARS_EKOS_ALIGN) << "ekos : CP Axis Location X:" << celestialPolePoint.x() << "Y:" << celestialPolePoint.y();
+	
+#define THRESHOLD 0.001
+	if (
+	    (fabs(RACircle.x()- RACircle_wildi.x()) >  THRESHOLD) ||
+	    (fabs(RACircle.y()- RACircle_wildi.y()) >  THRESHOLD) ||
+	    (fabs(RACircle.z()- RACircle_wildi.z()) >  THRESHOLD) ||
+	    (fabs(RACenter.ra0().Degrees()- RACenter_wildi.ra0().Degrees()) >  THRESHOLD) ||
+	    (fabs(RACenter.dec0().Degrees()- RACenter_wildi.dec0().Degrees()) >  THRESHOLD) ||
+	    (fabs(polarError.Degrees()- polarError_wildi.Degrees() ) >  THRESHOLD) 
+	    )
+	  {
+	    appendLogText(i18n("THERE is an ERROR in the CENTER values, check log"));
+	    qCDebug(KSTARS_EKOS_ALIGN) << "wildi: RA Axis Circle X: " << RACircle_wildi.x() << " Y: " << RACircle_wildi.y()
+				       << " Radius: " << RACircle_wildi.z();
+	    qCDebug(KSTARS_EKOS_ALIGN) << "wildi: RA Axis Location RA: " << RACenter_wildi.ra0().toHMSString()
+				       << "DE: " << RACenter_wildi.dec0().toDMSString();
+	    qCDebug(KSTARS_EKOS_ALIGN) << "wildi: RA Axis Offset: " << polarError_wildi.toDMSString() << "PA:" << PA;
+	    qCDebug(KSTARS_EKOS_ALIGN) << "wildi: CP Axis Location X:" << celestialPolePoint.x() << "Y:" << celestialPolePoint.y();
+	  }
     }
 
     RACenter.EquatorialToHorizontal(KStarsData::Instance()->lst(), KStarsData::Instance()->geo()->lat());
@@ -5416,14 +5499,16 @@ void Align::calculatePAHError()
     QString atDirection = RACenter.alt().Degrees() < KStarsData::Instance()->geo()->lat()->Degrees() ? "Bottom" : "Top";
     // FIXME should this be reversed for southern hemisphere?
     appendLogText(i18n("Mount axis is to the %1 %2 of the celestial pole", atDirection, azDirection));
-
-    PAHErrorLabel->setText(polarError.toDMSString());
+    
+    // 2020-05-02, wildi was, PAHErrorLabel->setText(polarError.toDMSString());
+    PAHErrorLabel->setText(polarDistance.toDMSString());
 
     correctionVector.setP1(Options::pAHFlipCorrectionVector() ? RACenterPoint : celestialPolePoint);
     correctionVector.setP2(Options::pAHFlipCorrectionVector() ? celestialPolePoint : RACenterPoint);
 
     connect(alignView, &AlignView::trackingStarSelected, this, &Ekos::Align::setPAHCorrectionOffset);
-    emit polarResultUpdated(correctionVector, polarError.toDMSString());
+    // 2020-05-02, wildi was, emit polarResultUpdated(correctionVector, polarError.toDMSString());
+    emit polarResultUpdated(correctionVector, polarDistance.toDMSString());
 
     connect(alignView, &AlignView::newCorrectionVector, this, &Ekos::Align::newCorrectionVector, Qt::UniqueConnection);
     emit newCorrectionVector(correctionVector);
@@ -5553,8 +5638,12 @@ void Align::processPAHStage(double orientation, double ra, double dec, double pi
     {
         // Set First PAH Center
         PAHImageInfo *solution = new PAHImageInfo();
+	/* 2020-05-02, wildi, was
         solution->skyCenter.setRA0(alignCoord.ra0());
         solution->skyCenter.setDec0(alignCoord.dec0());
+	*/
+        solution->skyCenter.setRA0(alignCoord.ra());
+        solution->skyCenter.setDec0(alignCoord.dec());
         solution->orientation = orientation;
         solution->pixelScale  = pixscale;
 
@@ -5579,10 +5668,15 @@ void Align::processPAHStage(double orientation, double ra, double dec, double pi
     }
     else if (pahStage == PAH_SECOND_CAPTURE)
     {
+        appendLogText(i18n("wildi PAH_SECOND_CAPTURE"));
         // Set 2nd PAH Center
         PAHImageInfo *solution = new PAHImageInfo();
+	/* 2020-05-02, wildi, was
         solution->skyCenter.setRA0(alignCoord.ra0());
         solution->skyCenter.setDec0(alignCoord.dec0());
+	*/
+        solution->skyCenter.setRA0(alignCoord.ra());
+        solution->skyCenter.setDec0(alignCoord.dec());
         solution->orientation = orientation;
         solution->pixelScale  = pixscale;
 
@@ -5607,16 +5701,55 @@ void Align::processPAHStage(double orientation, double ra, double dec, double pi
     }
     else if (pahStage == PAH_THIRD_CAPTURE)
     {
-        // Set Third PAH Center
+        appendLogText(i18n("wildi PAH_THIRD_CAPTURE"));
+        // Set 3rd PAH Center
         PAHImageInfo *solution = new PAHImageInfo();
+	/* 2020-05-02, wildi, was
         solution->skyCenter.setRA0(alignCoord.ra0());
         solution->skyCenter.setDec0(alignCoord.dec0());
+	*/
+        solution->skyCenter.setRA0(alignCoord.ra());
+        solution->skyCenter.setDec0(alignCoord.dec());
         solution->orientation = orientation;
         solution->pixelScale  = pixscale;
 
         pahImageInfos.append(solution);
 
-        appendLogText(i18n("Please wait while WCS data is processed..."));
+        // Only invoke this if limited resource mode is false since we want to use CPU heavy WCS
+        if (Options::limitedResourcesMode() == false)
+        {
+            appendLogText(i18n("Please wait while WCS data is processed..."));
+            connect(alignView, &AlignView::wcsToggled, this, &Ekos::Align::setWCSToggled, Qt::UniqueConnection);
+            alignView->injectWCS(orientation, ra, dec, pixscale);
+            return;
+        }
+
+        pahStage = PAH_THIRD_ROTATE;
+        emit newPAHStage(pahStage);
+
+        PAHWidgets->setCurrentWidget(PAHSecondRotatePage);
+        emit newPAHMessage(secondRotateText->text());
+
+        rotatePAH();
+    }
+    else if (pahStage == PAH_FORTH_CAPTURE)
+    {
+      appendLogText(i18n("wildi PAH_FORTH_CAPTURE"));
+
+        // Set Forth PAH Center
+        PAHImageInfo *solution = new PAHImageInfo();
+	/* 2020-05-02, wildi, was
+        solution->skyCenter.setRA0(alignCoord.ra0());
+        solution->skyCenter.setDec0(alignCoord.dec0());
+	*/
+        solution->skyCenter.setRA0(alignCoord.ra());
+        solution->skyCenter.setDec0(alignCoord.dec());
+        solution->orientation = orientation;
+        solution->pixelScale  = pixscale;
+
+        pahImageInfos.append(solution);
+
+        appendLogText(i18n("wildi Please wait while WCS data is processed..."));
         connect(alignView, &AlignView::wcsToggled, this, &Ekos::Align::setWCSToggled, Qt::UniqueConnection);
         alignView->injectWCS(orientation, ra, dec, pixscale);
         return;
@@ -5699,6 +5832,8 @@ void Align::setWCSToggled(bool result)
     }
     else if (pahStage == PAH_SECOND_CAPTURE)
     {
+      appendLogText(i18n("wildi PAH_SECOND_CAPTURE setWCSToggled"));
+
         // Find Celestial pole location
         SkyPoint CP(0, (hemisphere == NORTH_HEMISPHERE) ? 90 : -90);
 
@@ -5717,6 +5852,27 @@ void Align::setWCSToggled(bool result)
     }
     else if (pahStage == PAH_THIRD_CAPTURE)
     {
+      appendLogText(i18n("wildi PAH_THIRD_CAPTURE setWCSToggled"));
+
+        // Find Celestial pole location
+        SkyPoint CP(0, (hemisphere == NORTH_HEMISPHERE) ? 90 : -90);
+
+        FITSData *imageData = alignView->getImageData();
+        QPointF pixelPoint, imagePoint;
+        imageData->wcsToPixel(CP, pixelPoint, imagePoint);
+        pahImageInfos[1]->celestialPole = pixelPoint;
+
+        pahStage = PAH_THIRD_ROTATE;
+        emit newPAHStage(pahStage);
+
+        PAHWidgets->setCurrentWidget(PAHSecondRotatePage);
+        emit newPAHMessage(secondRotateText->text());
+
+        rotatePAH();
+    }
+    else if (pahStage == PAH_FORTH_CAPTURE)
+    {
+      appendLogText(i18n("wildi PAH_FORTH_CAPTURE setWCSToggled"));
         FITSData *imageData = alignView->getImageData();
 
         // Critical error
@@ -5725,9 +5881,11 @@ void Align::setWCSToggled(bool result)
             appendLogText(i18n("Failed to process World Coordinate System: %1. Try again.", imageData->getLastError()));
             return;
         }
-
+	// 2020-05-02, values do not depend on non zero ra
+	//offfor( int off = 330; off > 0; off -= 30) {
+	int off = 0;
         // Find Celestial pole location
-        SkyPoint CP(0, (hemisphere == NORTH_HEMISPHERE) ? 90 : -90);
+	SkyPoint CP((double) off, (hemisphere == NORTH_HEMISPHERE) ? 90 : -90);
 
         QPointF imagePoint;
 
@@ -5736,11 +5894,12 @@ void Align::setWCSToggled(bool result)
         pahImageInfos[2]->celestialPole = celestialPolePoint;
 
         // Now find pixel locations for all recorded center coordinates in the 3rd frame reference
-        if (!imageData->wcsToPixel(pahImageInfos[0]->skyCenter, pahImageInfos[0]->pixelCenter, imagePoint) ||
+        if (    !imageData->wcsToPixel(pahImageInfos[0]->skyCenter, pahImageInfos[0]->pixelCenter, imagePoint) ||
                 !imageData->wcsToPixel(pahImageInfos[1]->skyCenter, pahImageInfos[1]->pixelCenter, imagePoint) ||
-                !imageData->wcsToPixel(pahImageInfos[2]->skyCenter, pahImageInfos[2]->pixelCenter, imagePoint))
+                !imageData->wcsToPixel(pahImageInfos[2]->skyCenter, pahImageInfos[2]->pixelCenter, imagePoint) ||
+                !imageData->wcsToPixel(pahImageInfos[3]->skyCenter, pahImageInfos[3]->pixelCenter, imagePoint))
         {
-            appendLogText(i18n("WCS transformation failed: %1", imageData->getLastError()));
+            appendLogText(i18n("wildi WCS transformation failed: %1", imageData->getLastError()));
             stopPAHProcess();
             return;
         }
@@ -5751,6 +5910,8 @@ void Align::setWCSToggled(bool result)
                                    << "DE: " << pahImageInfos[1]->skyCenter.dec0().toDMSString();
         qCDebug(KSTARS_EKOS_ALIGN) << "P3 RA: " << pahImageInfos[2]->skyCenter.ra0().toHMSString()
                                    << "DE: " << pahImageInfos[2]->skyCenter.dec0().toDMSString();
+        qCDebug(KSTARS_EKOS_ALIGN) << "P4 RA: " << pahImageInfos[3]->skyCenter.ra0().toHMSString()
+                                   << "DE: " << pahImageInfos[3]->skyCenter.dec0().toDMSString();
 
         qCDebug(KSTARS_EKOS_ALIGN) << "P1 X: " << pahImageInfos[0]->pixelCenter.x()
                                    << "Y: " << pahImageInfos[0]->pixelCenter.y();
@@ -5758,6 +5919,8 @@ void Align::setWCSToggled(bool result)
                                    << "Y: " << pahImageInfos[1]->pixelCenter.y();
         qCDebug(KSTARS_EKOS_ALIGN) << "P3 X: " << pahImageInfos[2]->pixelCenter.x()
                                    << "Y: " << pahImageInfos[2]->pixelCenter.y();
+        qCDebug(KSTARS_EKOS_ALIGN) << "P4 X: " << pahImageInfos[3]->pixelCenter.x()
+                                   << "Y: " << pahImageInfos[3]->pixelCenter.y();
 
         qCDebug(KSTARS_EKOS_ALIGN) << "P1 CP X: " << pahImageInfos[0]->celestialPole.x()
                                    << "CP Y: " << pahImageInfos[0]->celestialPole.y();
@@ -5765,11 +5928,13 @@ void Align::setWCSToggled(bool result)
                                    << "CP Y: " << pahImageInfos[1]->celestialPole.y();
         qCDebug(KSTARS_EKOS_ALIGN) << "P3 CP X: " << pahImageInfos[2]->celestialPole.x()
                                    << "CP Y: " << pahImageInfos[2]->celestialPole.y();
+        qCDebug(KSTARS_EKOS_ALIGN) << "P4 CP X: " << pahImageInfos[3]->celestialPole.x()
+                                   << "CP Y: " << pahImageInfos[3]->celestialPole.y();
 
         // We have 3 points which uniquely defines a circle with its center representing the RA Axis
         // We have celestial pole location. So correction vector is just the vector between these two points
         calculatePAHError();
-
+	// off}
         pahStage = PAH_STAR_SELECT;
         emit newPAHStage(pahStage);
 
@@ -5793,6 +5958,7 @@ void Align::updateTelescopeType(int index)
     syncTelescopeInfo();
 }
 
+// wildi, unused
 // Function adapted from https://rosettacode.org/wiki/Circles_of_given_radius_through_two_points
 Align::CircleSolution Align::findCircleSolutions(const QPointF &p1, const QPointF p2, double angle,
         QPair<QPointF, QPointF> &circleSolutions)
@@ -5852,7 +6018,17 @@ double Align::distance(const QPointF &p1, const QPointF &p2)
 {
     return std::hypotf(p2.x() - p1.x(), p2.y() - p1.y());
 }
+bool Align::findRACircle_wildi(QVector3D &RACircle)
+{
+  QPointF p1 = pahImageInfos[0]->pixelCenter;
+  QPointF p2 = pahImageInfos[1]->pixelCenter;
+  QPointF p3 = pahImageInfos[2]->pixelCenter;
+  QPointF p4 = pahImageInfos[3]->pixelCenter;
 
+  return calcCircle_wildi(p1, p2, p3, p4, RACircle);
+}
+
+// wildi
 bool Align::findRACircle(QVector3D &RACircle)
 {
     bool rc = false;
@@ -5881,7 +6057,7 @@ bool Align::findRACircle(QVector3D &RACircle)
 
     return rc;
 }
-
+// wildi
 bool Align::isPerpendicular(const QPointF &p1, const QPointF &p2, const QPointF &p3)
 // Check the given point are perpendicular to x or y axis
 {
@@ -5920,7 +6096,114 @@ bool Align::isPerpendicular(const QPointF &p1, const QPointF &p2, const QPointF 
     else
         return false;
 }
+double determinant( double matrix[10][10], int n) {   
+   double det = 0.;
+   double submatrix[10][10];
+   if (n == 2)
+      return ((matrix[0][0] * matrix[1][1]) - (matrix[1][0] * matrix[0][1]));
+   else {
+      for (int x = 0; x < n; x++) {
+            int subi = 0; 
+            for (int i = 1; i < n; i++) {
+               int subj = 0;
+               for (int j = 0; j < n; j++) {
+                  if (j == x)
+                  continue;
+                  submatrix[subi][subj] = matrix[i][j];
+                  subj++;
+               }
+               subi++;
+            }
+            det = det + (pow(-1., (double) x) * matrix[0][x] * determinant( submatrix, n - 1 ));
+      }
+   }
+   return det;
+}
 
+//wildi
+bool Align::calcCircle_wildi(const QPointF &p1, const QPointF &p2, const QPointF &p3, const QPointF &p4, QVector3D &RACircle)
+{
+  // p1 = (1,0), p2 = (1,1), p3 = (-1,0)
+  
+   double z2_1 = pow(p1.x(),2) + pow(p1.y(),2);
+   double z2_2 = pow(p2.x(),2) + pow(p2.y(),2);
+   double z2_3 = pow(p3.x(),2) + pow(p3.y(),2);
+
+   double matrix_a[10][10]; 
+   matrix_a[0][0] = p1.x();
+   matrix_a[0][1] = p1.y();
+   matrix_a[0][2] = 1.;
+   matrix_a[1][0] = p2.x();
+   matrix_a[1][1] = p2.y();
+   matrix_a[1][2] = 1.;
+   matrix_a[2][0] = p3.x();
+   matrix_a[2][1] = p3.y();
+   matrix_a[2][2] = 1.;
+   double det_a = determinant(matrix_a, 3);
+
+#define ZERO_LIMIT 0.001
+   
+   if(fabs(det_a) < ZERO_LIMIT) {
+     appendLogText(i18n("determinat is nearly zero, no solution."));
+     return false;
+   }
+
+
+   
+   double matrix_b[10][10]; 
+   matrix_b[0][0] = z2_1;
+   matrix_b[0][1] = p1.y();
+   matrix_b[0][2] = 1.;
+   matrix_b[1][0] = z2_2;
+   matrix_b[1][1] = p2.y();
+   matrix_b[1][2] = 1.;
+   matrix_b[2][0] = z2_3;
+   matrix_b[2][1] = p3.y();
+   matrix_b[2][2] = 1.;
+   double det_b = -determinant(matrix_b, 3);
+
+   double matrix_c[10][10]; 
+   matrix_c[0][0] = z2_1;
+   matrix_c[0][1] = p1.x();
+   matrix_c[0][2] = 1.;
+   matrix_c[1][0] = z2_2;
+   matrix_c[1][1] = p2.x();
+   matrix_c[1][2] = 1.;
+   matrix_c[2][0] = z2_3;
+   matrix_c[2][1] = p3.x();
+   matrix_c[2][2] = 1.;
+   double det_c = determinant(matrix_c, 3);
+
+   double matrix_d[10][10]; 
+   matrix_d[0][0] = z2_1;
+   matrix_d[0][1] = p1.x();
+   matrix_d[0][2] = p1.y();
+   matrix_d[1][0] = z2_2;
+   matrix_d[1][1] = p2.x();
+   matrix_d[1][2] = p2.y();
+   matrix_d[2][0] = z2_3;
+   matrix_d[2][1] = p3.x();
+   matrix_d[2][2] = p3.y();
+   double det_d = -determinant(matrix_d, 3);
+
+   double x_m = -det_b / (2. * det_a);
+   double y_m = -det_c / (2. * det_a);
+   double r   = sqrt(fabs((pow(det_b,2.) + pow(det_c,2.))/(4. * pow(det_a,2.)) - det_d / det_a));
+   RACircle.setX(x_m);
+   RACircle.setY(y_m);
+   QPointF center(RACircle.x(), RACircle.y());
+   // this distance is the radius, gell.
+   RACircle.setZ(r);
+   // no check if p4 is on the "circle"
+   // in the tangent plane a circle is not a circle
+   // calculate distance from center and compare with radius
+   double d = sqrt(pow((p4.x()-x_m),2) + pow(p4.y()-y_m,2));
+   appendLogText(i18n("radius: %1, distance p4: %2, relative size: %3", r, d, (d-r)/r));
+   qCDebug(KSTARS_EKOS_ALIGN) << "radius: " << r << ", distance p4: " << d << ", relative size: " << (d-r)/r;
+
+   
+  return true ;
+}
 bool Align::calcCircle(const QPointF &p1, const QPointF &p2, const QPointF &p3, QVector3D &RACircle)
 {
     double yDelta_a = p2.y() - p1.y();
@@ -6157,6 +6440,10 @@ QString Align::getPAHMessage() const
         case PAH_SECOND_ROTATE:
             return secondRotateText->text();
         case PAH_THIRD_CAPTURE:
+            return thirdCaptureText->text();
+        case PAH_THIRD_ROTATE:
+            return secondRotateText->text();
+        case PAH_FORTH_CAPTURE:
             return thirdCaptureText->text();
         case PAH_STAR_SELECT:
             return correctionText->text();
