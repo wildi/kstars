@@ -5460,9 +5460,13 @@ void Align::calculatePAHError()
     dms polarError = RACenter.angularDistanceTo(&CP, &PA);
     dms polarError_wildi = RACenter_wildi.angularDistanceTo(&CP, &PA);
     // !!polarError will be overridden at the end
-    dms cp = dms(90.);
-    dms polarDistance = cp - RACenter.dec0() ; 
     RACenter.apparentCoord(static_cast<long double>(J2000), KStars::Instance()->data()->ut().djd());
+    dms cp = dms(90.);
+    dms polarDistance0 = CP.dec0() - RACenter.dec0() ;
+    // wildi, NO, we transform into JNow, hence the distance is the distance from 90.
+    //CP.apparentCoord(static_cast<long double>(J2000), KStars::Instance()->data()->ut().djd());
+    //dms polarDistance = CP.dec() - RACenter.dec() ;
+    dms polarDistance = CP.dec0() - RACenter.dec() ;
 
     if (Options::alignmentLogging())
     {
@@ -5473,7 +5477,8 @@ void Align::calculatePAHError()
         qCDebug(KSTARS_EKOS_ALIGN) << "ekos : JN RA Axis Location RA: " << RACenter.ra().toHMSString()
                                    << "DE: " << RACenter.dec().toDMSString();
         qCDebug(KSTARS_EKOS_ALIGN) << "ekos : RA Axis Offset: " << polarError.toDMSString() << "PA:" << PA;
-        qCDebug(KSTARS_EKOS_ALIGN) << "ekos : polar distance: " << polarDistance.toDMSString() ;
+        qCDebug(KSTARS_EKOS_ALIGN) << "       J2 polar distance: " << polarDistance0.toDMSString() ;
+        qCDebug(KSTARS_EKOS_ALIGN) << "       JN polar distance: " << polarDistance.toDMSString() ;
         qCDebug(KSTARS_EKOS_ALIGN) << "ekos : CP Axis Location X:" << celestialPolePoint.x() << "Y:" << celestialPolePoint.y();
 	
 #define THRESHOLD 0.001
