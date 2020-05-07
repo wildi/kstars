@@ -5447,6 +5447,7 @@ void Align::calculatePAHError()
     // 2020-04-27, wildi consulting skypoint.h
     // no J2000 to JNow occurs.
     // 2020-05-02, wildi see constructor
+    // ToDo, ev. ra0, dec0 are misused
     RACenter.setRA(RACenter.ra0());
     RACenter.setDec(RACenter.dec0());
     RACenter_wildi.setRA(RACenter_wildi.ra0());
@@ -5461,7 +5462,8 @@ void Align::calculatePAHError()
     // !!polarError will be overridden at the end
     dms cp = dms(90.);
     dms polarDistance = cp - RACenter.dec0() ; 
-    
+    RACenter.apparentCoord(static_cast<long double>(J2000), KStars::Instance()->data()->ut().djd());
+
     if (Options::alignmentLogging())
     {
         qCDebug(KSTARS_EKOS_ALIGN) << "ekos : RA Axis Circle X: " << RACircle.x() << " Y: " << RACircle.y()
@@ -5633,7 +5635,7 @@ void Align::processPAHStage(double orientation, double ra, double dec, double pi
         emit newPAHStage(pahStage);
         return;
     }
-
+    dms lst = KStarsData::Instance()->geo()->GSTtoLST(KStarsData::Instance()->clock()->utc().gst());
     if (pahStage == PAH_FIRST_CAPTURE)
     {
         // Set First PAH Center
@@ -5642,7 +5644,8 @@ void Align::processPAHStage(double orientation, double ra, double dec, double pi
         solution->skyCenter.setRA0(alignCoord.ra0());
         solution->skyCenter.setDec0(alignCoord.dec0());
 	*/
-        solution->skyCenter.setRA0(alignCoord.ra());
+	dms JnHA(lst- alignCoord.ra()); 
+        solution->skyCenter.setRA0(JnHA);
         solution->skyCenter.setDec0(alignCoord.dec());
         solution->orientation = orientation;
         solution->pixelScale  = pixscale;
@@ -5675,7 +5678,8 @@ void Align::processPAHStage(double orientation, double ra, double dec, double pi
         solution->skyCenter.setRA0(alignCoord.ra0());
         solution->skyCenter.setDec0(alignCoord.dec0());
 	*/
-        solution->skyCenter.setRA0(alignCoord.ra());
+	dms JnHA(lst- alignCoord.ra()); 
+        solution->skyCenter.setRA0(JnHA);
         solution->skyCenter.setDec0(alignCoord.dec());
         solution->orientation = orientation;
         solution->pixelScale  = pixscale;
@@ -5708,7 +5712,8 @@ void Align::processPAHStage(double orientation, double ra, double dec, double pi
         solution->skyCenter.setRA0(alignCoord.ra0());
         solution->skyCenter.setDec0(alignCoord.dec0());
 	*/
-        solution->skyCenter.setRA0(alignCoord.ra());
+	dms JnHA(lst- alignCoord.ra()); 
+        solution->skyCenter.setRA0(JnHA);
         solution->skyCenter.setDec0(alignCoord.dec());
         solution->orientation = orientation;
         solution->pixelScale  = pixscale;
@@ -5742,7 +5747,8 @@ void Align::processPAHStage(double orientation, double ra, double dec, double pi
         solution->skyCenter.setRA0(alignCoord.ra0());
         solution->skyCenter.setDec0(alignCoord.dec0());
 	*/
-        solution->skyCenter.setRA0(alignCoord.ra());
+	dms JnHA(lst- alignCoord.ra()); 
+        solution->skyCenter.setRA0(JnHA);
         solution->skyCenter.setDec0(alignCoord.dec());
         solution->orientation = orientation;
         solution->pixelScale  = pixscale;
